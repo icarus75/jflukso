@@ -1,0 +1,3 @@
+jflukso uses the BonjourFoxy Firefox plugin to access the Bonjour entries the host machine obtained through mDNS. It searches for a service of type _flukso._tcp and extracts the necessary information to construct a URL for the RESTful API call to the Fluksometer. E.g. http://flukso.local:8080/sensor/0123456789abcdef0123456789abcde0?version=1.0&interval=minute&unit=watt&jsonp_callback=get_sensor_data. The jsonp callback parameter is required to be able to access data on an IP address different from the one of the HTML page. The data returned by the API call is charted through JQuery/Flot and then updated every second.
+
+More contextual information is available in the elektro:camp(<<2010>>). presentation available at ... 

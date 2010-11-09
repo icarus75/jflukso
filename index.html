@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+ <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Autodiscovery of Flukso sensor data</title>
+    <link href="layout.css" rel="stylesheet" type="text/css"></link>
+    <!--[if IE]><script language="javascript" type="text/javascript" src="../excanvas.min.js"></script><![endif]-->
+    <script language="javascript" type="text/javascript" src="config.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.js"></script>
+    <script language="javascript" type="text/javascript" src="flot/jquery.flot.js"></script>
+ </head>
+    <body>
+    <h1><img src="logo.png"></h1>
+
+    <div id="placeholder" style="width:600px;height:300px;"></div>
+
+    <p>This prototype uses the avahi/bonjour mDNS protocol (through the BonjourFoxy plugin) to discover the location of the Flukso sensor data in the LAN. It then makes a call every second to the Fluksometer's RESTful API and upates the chart accordingly.</p>
+
+    <p>
+      <input class="dataUpdate" type="button" value="Poll for data">
+    </p>
+
+<script id="source" language="javascript" type="text/javascript">
+$(function () {
+    var options = {
+        lines: { show: true },
+        points: { show: true },
+        xaxis: { mode: 'time' }
+    };
+    var data = [];
+    var placeholder = $("#placeholder");
+    
+    $.plot(placeholder, data, options);
+
+    
+    // fetch one series, adding to what we got
+    var alreadyFetched = {};
+    
+    $("input.fetchSeries").click(function () {
+        var button = $(this);
+        
+        // find the URL in the link right next to us 
+        var dataurl = button.siblings('a').attr('href');
+
+        // then fetch the data with jQuery
+        function onDataReceived(series) {
+            // extract the first coordinate pair so you can see that
+            // data is now an ordinary Javascript object
+            var firstcoordinate = '(' + series.data[0][0] + ', ' + series.data[0][1] + ')';
+
+            button.siblings('span').text('Fetched ' + series.label + ', first point: ' + firstcoordinate);
+
+            // let's add it to our current data
+            if (!alreadyFetched[series.label]) {
+                alreadyFetched[series.label] = true;
+                data.push(series);
+            }
+            
+            // and plot all we got
+            $.plot(placeholder, data, options);
+         }
+        
+        $.ajax({
+            url: dataurl,
+            method: 'GET',
+            dataType: 'json',
+            success: onDataReceived
+        });
+    });
+
+
+    // initiate a recurring data update
+    $("input.dataUpdate").click(function () {
+        // reset data
+        data = [];
+
+        var url;
+        var now = new Date();
+        var offset = now.getTimezoneOffset() * (-60);
+        var sensor = [];
+ 
+        $.plot(placeholder, data, options);
+
+        netscape.security.PrivilegeManager.enablePrivilege('UniversalXPConnect');
+        var bonjour = Components.classes["@bonjourfoxy.net/BFDNSSDService;1"].createInstance(Components.interfaces.IBFDNSSDService);
+        bonjour.browse(0, '_flukso._tcp', '', onBrowse);
+        
+        function onBrowse(service, add, interfaceIndex, error, serviceName, regtype, domain) {
+            function onResolve(service, interfaceIndex, error, fullname, host, port, keyValues) {
+                sensor = [];
+
+                host = host.substring(0, host.length - 1);
+                //console.log(service, interfaceIndex, error, fullname, host, port);
+                netscape.security.PrivilegeManager.enablePrivilege('UniversalXPConnect');
+                for (var i = 0; i < keyValues.length; i++) {
+                    var txt_record = keyValues.queryElementAt(i, Components.interfaces.nsIVariant);
+                    var attribute = txt_record.split('=');
+                    switch (attribute[0]) {
+                        case 'path':
+                            var path = attribute[1];
+                            break;
+                        case 'version':
+                            var version = attribute[1];
+                            break;
+                        case 'id1':
+                            sensor[0] = attribute[1];
+                            break;
+                    }
+                }
+                url = 'http://' + host + ':' + port + path + '/' + sensor[0] + '?interval=minute&unit=watt&version=' + version; 
+                //console.log(url);
+            }
+
+            // console.log(service, add, interfaceIndex, error, serviceName, regtype, domain);
+            netscape.security.PrivilegeManager.enablePrivilege('UniversalXPConnect');
+            bonjour.resolve(interfaceIndex, serviceName, regtype, domain, onResolve);
+        }
+
+        function fetchData() {
+            function onDataReceived(series) {
+                for (i = 0; i < series.length; i += 1) series[i][0] = (series[i][0] + offset) * 1000; 
+                data = [ {label: sensor[0], color: 'rgb(0, 174, 239)', data: series} ];
+
+                $.plot(placeholder, data, options);
+            }
+
+            if (url) {
+                $.ajax({
+                    url: url, 
+                    method: 'GET',
+                    cache: false,
+                    dataType: 'jsonp',
+                    jsonp: 'jsonp_callback',
+                    jsonpCallback: 'padding',
+                    success: onDataReceived
+                });
+            }
+            setTimeout(fetchData, 1000);
+        }
+
+        setTimeout(fetchData, 1000);
+    });
+});
+</script>
+
+ </body>
+</html>
